@@ -1,0 +1,5 @@
+streamlit<2
+pandas
+openpyxl
+blinker
+typing_extensions
