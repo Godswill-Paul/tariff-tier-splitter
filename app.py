@@ -13,15 +13,16 @@ uploaded_file = st.file_uploader("Upload your Master Price List Excel file (.xls
 if uploaded_file is not None:
     try:
         # Step 2: Read all sheets from the uploaded Excel file
-        # st.spinner is a good practice for long operations
         with st.spinner('Reading file and preparing data...'):
-            sheets = pd.read_excel(uploaded_file, sheet_name=None)
+            # Explicitly load SNOMED CODE as string to prevent scientific notation
+            sheets = pd.read_excel(uploaded_file, sheet_name=None, dtype={'SNOMED CODE': str})
             
         st.info(f"Loaded **{len(sheets)}** sheets successfully. Starting split...")
         
         # Define tiers and columns to keep
         tiers = ["Tier 0", "Tier 1", "Tier 2", "Tier 3", "Tier 4"]
-        cols_to_keep = ["S/N", "LINE ITEMS", "SNOMED CODE", "DESCRIPTION EN"] # Corrected the column name from the image
+        # The column names will be standardized to this list in the output
+        cols_to_keep = ["S/N", "LINE ITEMS", "SNOMED CODE", "DESCRIPTION EN"] 
         
         # Use an in-memory buffer for the final zip file
         zip_buffer = io.BytesIO()
@@ -33,10 +34,10 @@ if uploaded_file is not None:
                 for tier in tiers:
                     # Use an in-memory buffer for each Excel file
                     excel_buffer = io.BytesIO()
-                    
+                    sheets_processed = 0
+
                     # Create the Excel file in memory
                     with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
-                        sheets_processed = 0
                         for sheet_name, df in sheets.items():
                             # Clean column names for reliable matching
                             df.columns = df.columns.str.strip()
@@ -45,13 +46,20 @@ if uploaded_file is not None:
                             if tier not in df.columns:
                                 continue
 
-                            # Identify available columns to select
+                            # 1. Identify available columns to select
                             available_cols = [col for col in cols_to_keep + [tier] if col in df.columns]
 
-                            # Select subset and write to the in-memory writer
+                            # 2. Select subset
                             if available_cols:
                                 subset = df[available_cols].copy()
-                                # Streamlit limits sheet names to 31 chars
+                                
+                                # 3. CRITICAL FIX: Rename the tier column to 'PRICE'
+                                subset.rename(columns={tier: 'PRICE'}, inplace=True)
+                                
+                                # 4. Standardize all column names for the output
+                                # The current set of columns: ["S/N", "LINE ITEMS", "SNOMED CODE", "DESCRIPTION EN", "PRICE"]
+                                
+                                # 5. Write to the in-memory writer
                                 safe_sheet_name = sheet_name[:31] 
                                 subset.to_excel(writer, sheet_name=safe_sheet_name, index=False)
                                 sheets_processed += 1
