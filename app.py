@@ -5,7 +5,7 @@ import zipfile
 
 st.set_page_config(layout="centered")
 st.title("Excel Tier Splitter ✂️")
-st.markdown("Upload your Excel workbook to split it into individual workbooks for each price tier (Tier 0 to Tier 4).")
+st.markdown("Upload your Excel workbook. The code now includes robust column cleaning to handle extra spaces and casing inconsistencies.")
 
 # Step 1: Upload file
 uploaded_file = st.file_uploader("Upload your Master Price List Excel file (.xlsx)", type=["xlsx"])
@@ -14,17 +14,16 @@ if uploaded_file is not None:
     try:
         # Step 2: Read all sheets from the uploaded Excel file
         with st.spinner('Reading file and preparing data...'):
-            # Explicitly load SNOMED CODE as string to prevent scientific notation
+            # Load SNOMED CODE as string to prevent scientific notation
             sheets = pd.read_excel(uploaded_file, sheet_name=None, dtype={'SNOMED CODE': str})
             
         st.info(f"Loaded **{len(sheets)}** sheets successfully. Starting split...")
         
-        # Define tiers and columns to keep
+        # Define tiers and the target columns (what they *should* look like after cleaning)
         tiers = ["Tier 0", "Tier 1", "Tier 2", "Tier 3", "Tier 4"]
-        # The column names will be standardized to this list in the output
-        cols_to_keep = ["S/N", "LINE ITEMS", "SNOMED CODE", "DESCRIPTION EN"] 
+        # Standardized column names in uppercase without spaces for matching
+        standard_cols = ["S/N", "LINE ITEMS", "SNOMED CODE", "DESCRIPTION EN"] 
         
-        # Use an in-memory buffer for the final zip file
         zip_buffer = io.BytesIO()
         zip_name = "RH_Tiers_Workbooks.zip"
 
@@ -32,43 +31,47 @@ if uploaded_file is not None:
         with st.spinner('Processing tiers and creating workbooks...'):
             with zipfile.ZipFile(zip_buffer, 'a', zipfile.ZIP_DEFLATED, False) as zip_file:
                 for tier in tiers:
-                    # Use an in-memory buffer for each Excel file
                     excel_buffer = io.BytesIO()
                     sheets_processed = 0
 
-                    # Create the Excel file in memory
                     with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
                         for sheet_name, df in sheets.items():
-                            # Clean column names for reliable matching
-                            df.columns = df.columns.str.strip()
                             
-                            # Skip if the tier column doesn't exist on the sheet
-                            if tier not in df.columns:
+                            # --- ROBUST COLUMN CLEANING ---
+                            # 1. Create a mapping of original column names to cleaned column names (UPPERCASE, stripped)
+                            column_map = {col: col.strip().upper() for col in df.columns}
+                            
+                            # 2. Apply the mapping to the DataFrame
+                            df.rename(columns=column_map, inplace=True)
+                            
+                            # 3. Define the cleaned tier column name
+                            cleaned_tier_col = tier.upper()
+                            
+                            # ----------------------------
+
+                            # Skip if the tier column doesn't exist on the sheet after cleaning
+                            if cleaned_tier_col not in df.columns:
                                 continue
 
-                            # 1. Identify available columns to select
-                            available_cols = [col for col in cols_to_keep + [tier] if col in df.columns]
+                            # 4. Identify available columns (using the standardized list)
+                            # We combine the standard columns and the single tier column we want
+                            all_required_cols = standard_cols + [cleaned_tier_col]
+                            available_cols = [col for col in all_required_cols if col in df.columns]
 
-                            # 2. Select subset
                             if available_cols:
                                 subset = df[available_cols].copy()
                                 
-                                # 3. CRITICAL FIX: Rename the tier column to 'PRICE'
-                                subset.rename(columns={tier: 'PRICE'}, inplace=True)
+                                # 5. Rename the tier column to 'PRICE' for the final output
+                                subset.rename(columns={cleaned_tier_col: 'PRICE'}, inplace=True)
                                 
-                                # 4. Standardize all column names for the output
-                                # The current set of columns: ["S/N", "LINE ITEMS", "SNOMED CODE", "DESCRIPTION EN", "PRICE"]
-                                
-                                # 5. Write to the in-memory writer
+                                # 6. Write to the in-memory writer
                                 safe_sheet_name = sheet_name[:31] 
                                 subset.to_excel(writer, sheet_name=safe_sheet_name, index=False)
                                 sheets_processed += 1
                         
-                        # Only proceed if data was actually written for this tier
                         if sheets_processed > 0:
-                            # Save the in-memory Excel file to the in-memory zip
-                            writer.close() # Ensure data is written to the buffer
-                            excel_buffer.seek(0) # Rewind the buffer to the beginning
+                            writer.close() 
+                            excel_buffer.seek(0) 
                             tier_filename = f"{tier}_Price_List.xlsx"
                             zip_file.writestr(tier_filename, excel_buffer.getvalue())
 
