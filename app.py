@@ -5,7 +5,7 @@ import zipfile
 
 st.set_page_config(layout="centered")
 st.title("Excel Tier Splitter ✂️")
-st.markdown("This tool splits your master workbook by price tier, ensuring robust column matching and correct final headers.")
+st.markdown("This tool splits your master workbook by price tier. It uses robust logic to handle column name inconsistencies (like extra spaces or casing) and ensures the final output has the requested headers: **TARIFF NAME** and **PRICE**.")
 
 # Step 1: Upload file
 uploaded_file = st.file_uploader("Upload your Master Price List Excel file (.xlsx)", type=["xlsx"])
@@ -19,17 +19,8 @@ if uploaded_file is not None:
             
         st.info(f"Loaded **{len(sheets)}** sheets successfully. Starting split...")
         
-        # Define tiers and the target columns for the final output
+        # Define tiers (base names) and the target columns for the final output
         tiers = ["Tier 0", "Tier 1", "Tier 2", "Tier 3", "Tier 4"]
-        
-        # --- CRITICAL UPDATE: Standardized column names for the FINAL output structure ---
-        # The list includes the name we want to match from the input (e.g., LINE ITEMS) and 
-        # the name we want in the output (e.g., TARIFF NAME).
-        # We must use the standardized/cleaned names for matching: UPPERCASE and stripped.
-        STANDARD_COLUMNS_MAPPING = {
-            "LINE ITEMS": "TARIFF NAME", 
-            "DESCRIPTION EN": "SNOMED DESCRIPTION EN"
-        }
         
         zip_buffer = io.BytesIO()
         zip_name = "RH_Tiers_Workbooks.zip"
@@ -51,48 +42,59 @@ if uploaded_file is not None:
                             # 2. Apply the mapping to the DataFrame
                             df.rename(columns=column_map, inplace=True)
                             
-                            # 3. Define the cleaned tier column name
-                            cleaned_tier_col = tier.upper()
+                            # 3. Define the base tier name for flexible matching
+                            tier_clean = tier.upper().strip()
                             
+                            # 4. Find the actual tier column (e.g., handles "TIER 4 ") using startswith
+                            tier_col_matches = [c for c in df.columns if c.startswith(tier_clean)]
+                            
+                            if not tier_col_matches:
+                                continue # Skip if no tier column is found
+                            
+                            # Use the first matched column as the actual price column
+                            actual_tier_col = tier_col_matches[0] 
                             # ----------------------------
 
-                            # Skip if the tier column doesn't exist on the sheet after cleaning
-                            if cleaned_tier_col not in df.columns:
-                                continue
-
-                            # 4. Define the list of columns to select from the cleaned DataFrame
-                            # This list uses the cleaned (UPPERCASE) names for selection.
-                            cols_to_select = ["S/N", "SNOMED CODE", cleaned_tier_col]
+                            # 5. Define the list of core columns to select from the cleaned DataFrame
+                            # This list uses the expected CLEANED (UPPERCASE) names for selection.
+                            cols_to_select = ["S/N", "SNOMED CODE", actual_tier_col]
                             
-                            # Add the "LINE ITEMS" column if it exists in the sheet (it will be renamed later)
+                            # Columns we will select if they exist and then rename:
+                            # LINE ITEMS -> TARIFF NAME
+                            # SNOMED DESCRIPTION EN -> SNOMED DESCRIPTION EN (If it was "DESCRIPTION EN", it's covered by the cleaning and rename step)
+                            
                             if "LINE ITEMS" in df.columns:
                                 cols_to_select.append("LINE ITEMS")
-                            
-                            # Add the "DESCRIPTION EN" column if it exists in the sheet (it will be renamed later)
-                            if "DESCRIPTION EN" in df.columns:
-                                cols_to_select.append("DESCRIPTION EN")
+                            if "SNOMED DESCRIPTION EN" in df.columns:
+                                cols_to_select.append("SNOMED DESCRIPTION EN")
 
-                            # 5. Select the subset
-                            subset = df[cols_to_select].copy()
+
+                            # 6. Select the subset and prepare for renaming
+                            subset = df[[col for col in cols_to_select if col in df.columns]].copy()
                             
-                            # 6. CRITICAL FIX: Rename columns to the final desired structure (e.g., TARIFF NAME, PRICE)
-                            # Rename the tier column to 'PRICE'
-                            subset.rename(columns={cleaned_tier_col: 'PRICE'}, inplace=True)
+                            # 7. CRITICAL FIX: Rename columns to the final desired structure (e.g., TARIFF NAME, PRICE)
+                            rename_dict = {}
                             
-                            # Rename item and description columns to the requested final names
+                            # Tier column to PRICE
+                            rename_dict[actual_tier_col] = 'PRICE'
+                            
+                            # LINE ITEMS to TARIFF NAME
                             if "LINE ITEMS" in subset.columns:
-                                subset.rename(columns={"LINE ITEMS": "TARIFF NAME"}, inplace=True)
-                            if "DESCRIPTION EN" in subset.columns:
-                                subset.rename(columns={"DESCRIPTION EN": "SNOMED DESCRIPTION EN"}, inplace=True)
+                                rename_dict["LINE ITEMS"] = "TARIFF NAME"
+                            
+                            # SNOMED DESCRIPTION EN is used as the final name, but we ensure it's there
+                            
+                            subset.rename(columns=rename_dict, inplace=True)
 
-                            # 7. Reorder columns to match the desired final sequence:
+                            # 8. Reorder columns to match the desired final sequence:
+                            # S/N, TARIFF NAME, PRICE, SNOMED CODE, SNOMED DESCRIPTION EN
                             final_order = ["S/N", "TARIFF NAME", "PRICE", "SNOMED CODE", "SNOMED DESCRIPTION EN"]
                             
-                            # Only keep columns that are actually present in the subset
+                            # Only keep columns that are actually present in the subset and in the correct order
                             subset = subset[[col for col in final_order if col in subset.columns]]
 
 
-                            # 8. Write to the in-memory writer
+                            # 9. Write to the in-memory writer
                             safe_sheet_name = sheet_name[:31] 
                             subset.to_excel(writer, sheet_name=safe_sheet_name, index=False)
                             sheets_processed += 1
