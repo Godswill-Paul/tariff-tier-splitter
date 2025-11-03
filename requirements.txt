@@ -3,3 +3,7 @@ pandas
 openpyxl
 blinker
 typing_extensions
+numpy
+python-dateutil
+pytz
+six
