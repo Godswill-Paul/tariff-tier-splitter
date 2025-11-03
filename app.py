@@ -8,6 +8,7 @@ st.title("Excel Tier Splitter")
 # Step 1: Upload file
 uploaded_file = st.file_uploader("Upload your Excel file", type=["xlsx"])
 if uploaded_file is not None:
+    # Read all sheets from the uploaded Excel file
     sheets = pd.read_excel(uploaded_file, sheet_name=None)
     
     # Step 2: Define tiers and columns to keep
@@ -16,12 +17,12 @@ if uploaded_file is not None:
     
     output_files = []
     
-    # Step 3: Create workbooks per tier
+    # Step 3: Create a workbook per tier
     for tier in tiers:
         out_path = f"{tier}.xlsx"
         with pd.ExcelWriter(out_path, engine='openpyxl') as writer:
             for sheet_name, df in sheets.items():
-                df.columns = df.columns.str.strip()
+                df.columns = df.columns.str.strip()  # Clean column names
                 if tier not in df.columns:
                     continue
                 available_cols = [col for col in cols_to_keep + [tier] if col in df.columns]
@@ -33,10 +34,7 @@ if uploaded_file is not None:
     zip_name = "RH_Tiers_Workbooks"
     shutil.make_archive(zip_name, "zip", ".")
     
-    # Step 5: Show success message first
-    st.success("✅ All workbooks processed and zipped successfully!")
-    
-    # Step 6: Provide download button
+    # Step 5: Provide download button
     with open(f"{zip_name}.zip", "rb") as f:
         st.download_button(
             label="Download Split Workbooks",
@@ -44,3 +42,5 @@ if uploaded_file is not None:
             file_name=f"{zip_name}.zip",
             mime="application/zip"
         )
+    
+    st.success("✅ All workbooks processed and zipped successfully!")
