@@ -5,7 +5,7 @@ import zipfile
 
 st.set_page_config(layout="centered")
 st.title("Excel Tier Splitter ✂️")
-st.markdown("This tool splits your master workbook by price tier. It uses robust logic to handle column name inconsistencies (like extra spaces or casing) and ensures the final output has the requested headers: **TARIFF NAME** and **PRICE**.")
+st.markdown("This tool splits your master workbook by price tier. It uses robust logic to handle column name inconsistencies (like extra spaces or casing) and ensures the final output has the requested headers: **TARIFF NAME**,  **PRICE**, **SNOMED CODE**, and **SNOMED DESCRIPTION EN**.")
 
 # Step 1: Upload file
 uploaded_file = st.file_uploader("Upload your Master Price List Excel file (.xlsx)", type=["xlsx"])
